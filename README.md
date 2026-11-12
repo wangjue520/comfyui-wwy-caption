@@ -41,7 +41,7 @@
 
 | 项 | 说明 |
 | --- | --- |
-| `launcher_dir` | WWY 启动器文件夹（也可以用环境变量 `WWY_LAUNCHER_DIR`） |
+| `launcher_dir` | WWY 启动器文件夹（也可以用环境变量 `WWY_LAUNCHER_DIR`）；不填时会在 ComfyUI 旁边自己找，整合包里不用填 |
 | `trainer_root` | WWY LoRA 训练器文件夹（也可以用 `WWY_LORA_TRAINER`）；不填时从启动器配置里读 |
 | `vlm_python` | 指定跑自然语言模型的 Python |
 | `extra_vlm_dirs` | 额外的模型目录 |

@@ -6,7 +6,7 @@
   · 自然语言模型：训练器的 models/taggers → 启动器的 vlm_models → config.json 里加的目录 → ComfyUI/models/vlm_caption
   · WD14 模型：启动器的 wd_tagger_models → 训练器的 models/taggers → ComfyUI/models/wd14_tagger
   · 跑自然语言模型的环境：训练器的 env（transformers 新，ToriiGate 0.5 要它）→ 启动器的 vlm_venv → ComfyUI 自己的 Python
-启动器 / 训练器的位置：config.json → 环境变量 WWY_LAUNCHER_DIR / WWY_LORA_TRAINER → 启动器配置里的 lora_trainer_root。
+启动器 / 训练器的位置：config.json → 环境变量 WWY_LAUNCHER_DIR / WWY_LORA_TRAINER → ComfyUI 旁边自己找（整合包）→ 启动器配置里的 lora_trainer_root。
 """
 import json
 import os
@@ -56,11 +56,45 @@ def sibling_plugin(name):
     return ""
 
 
+def _is_launcher(d):
+    return bool(d) and os.path.isfile(os.path.join(d, "launcher_config.json")) and os.path.isdir(os.path.join(d, "app"))
+
+
+_auto_launcher = None
+
+
+def _find_launcher_near_comfy():
+    """没配置时自己找：从 ComfyUI 目录往上三层，看这一层和它下面一层有没有启动器
+    （整合包是「包/ComfyUI」和「包/forge-webui-launcher」并排）。"""
+    global _auto_launcher
+    if _auto_launcher is not None:
+        return _auto_launcher
+    _auto_launcher = ""
+    d = os.path.dirname(_models_dir())   # ComfyUI 根目录
+    for _ in range(3):
+        up = os.path.dirname(d)
+        if not up or up == d or not os.path.isdir(up):
+            break
+        d = up
+        if _is_launcher(d):
+            _auto_launcher = d
+            break
+        try:
+            subs = [os.path.join(d, n) for n in os.listdir(d)]
+        except OSError:
+            subs = []
+        hit = next((s for s in subs if os.path.isdir(s) and _is_launcher(s)), "")
+        if hit:
+            _auto_launcher = hit
+            break
+    return _auto_launcher
+
+
 def launcher_dir():
     d = (config().get("launcher_dir") or os.environ.get("WWY_LAUNCHER_DIR") or "").strip()
-    if d and os.path.isfile(os.path.join(d, "launcher_config.json")):
+    if _is_launcher(d):
         return d
-    return ""
+    return _find_launcher_near_comfy()
 
 
 def trainer_root():
