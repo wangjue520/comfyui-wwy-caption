@@ -1,0 +1,36 @@
+WWY 反推插件：没有 WWY 启动器时怎么用
+=====================================
+
+推荐用 WWY 启动器（或整合包）启动 ComfyUI：模型、AI 接口都和启动器共用，下面这些都不用管。
+没有启动器也能用，只是要自己弄下面三件事。
+
+1. 模型放哪
+   第一次运行会自动下载，放在 ComfyUI 的 models 文件夹里：
+     WD14 标签模型   → ComfyUI\models\wd14_tagger\
+     自然语言模型    → ComfyUI\models\vlm_caption\
+   国内网络默认先走 hf-mirror / 魔搭。想官方源优先，在 config.json 里写 "mirror": false。
+
+2. 自然语言反推用哪个模型
+   没有启动器 / 训练器时，模型在 ComfyUI 自己的 Python 环境里跑。
+     · Qwen3-VL（4B / 8B）：可以用。
+     · ToriiGate 0.5：要 transformers 5 以上，ComfyUI 自带的版本跑不了，会报错。
+   装了 WWY LoRA 训练器的话，在 config.json 里填 "trainer_root": "训练器文件夹"，就会用训练器的环境跑 ToriiGate。
+
+3. 用网上的 AI 服务（「模型」选 API 时）
+   打开本插件文件夹里的 config.json（没有的话，把 config.example.json 复制一份、改名成 config.json），
+   在 "api" 这一段填上服务商和 Key：
+
+   {
+     "api": {
+       "provider": "deepseek",
+       "api_key": "你的 Key"
+     }
+   }
+
+   provider 可以填：
+     deepseek  DeepSeek（只能写提示词，不能看图）
+     qwen      通义千问 / 阿里云百炼（能看图反推）
+     claude    Claude（能看图反推）
+     custom    其他 OpenAI 兼容接口，要再填 "base_url" 和 "model"
+   保存后重新运行节点就行，不用重启 ComfyUI。
+   装了启动器时，以启动器「设置 → 报错诊断」里填的为准。

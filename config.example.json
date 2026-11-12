@@ -1,0 +1,13 @@
+{
+  "launcher_dir": "",
+  "trainer_root": "",
+  "vlm_python": "",
+  "extra_vlm_dirs": [],
+  "mirror": true,
+  "api": {
+    "provider": "deepseek",
+    "api_key": "",
+    "base_url": "",
+    "model": ""
+  }
+}

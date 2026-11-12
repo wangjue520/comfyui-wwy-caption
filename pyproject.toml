@@ -1,0 +1,16 @@
+[project]
+name = "comfyui-wwy-caption"
+description = "WWY 反推：WD14 标签、标签筛选、自然语言反推（ToriiGate / JoyCaption / Qwen3-VL / API）、合并提示词、AI 优化提示词（可关掉补哪几类、查中文标签字典核对）。模型和 AI 设置与 WWY 启动器共用。"
+version = "1.0.0"
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/wangjue520/comfyui-wwy-caption"
+
+[tool.comfy]
+PublisherId = "wangjue520"
+DisplayName = "WWY 反推 (comfyui-wwy-caption)"
+Icon = ""

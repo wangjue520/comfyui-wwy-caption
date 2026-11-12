@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+# 本机配置（启动器位置、API Key），照 config.example.json 自己建
+config.json
