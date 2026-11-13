@@ -6,6 +6,8 @@ AI 优化提示词：写法、条件开关、查字典。
   · Anima：质量词 → 人数和主体标签 → 内容标签 → 2 到 4 句英文描述；提示词太短太空时容易画出不想要的东西。
   · Krea 2：用视觉语言模型（Qwen3-VL）读提示词，写成完整、具体的英文段落，像在描述一张已经存在的图。
 条件开关：关掉的那一类（外貌、服装、动作表情、背景、光线构图）AI 不许新加；用户自己写的照样保留。
+  标签里的按类别删，句子里的按「哪些词是用户写过的」删掉 AI 补的短语，删不干净就删整句。
+画师串和画风词：用户自己写的不交给 AI，原样拿出来，写完再原样放回（Anima 放在质量词后面，其他写法放最前面）。
 查字典（Anima 写法）：用中文标签补全插件的字典（comfyui-zh-tag-autocomplete/data/tags.json），
   写之前把用户写的中文查成标准标签交给 AI；写完逐个核对标签，字典里没有的（编出来的）和画师标签删掉。
 """
@@ -19,7 +21,8 @@ from . import textproc as tp
 
 # ---------------- 写法 ----------------
 NO_STYLE = ("Never add artist names, '@' mentions, art-style or medium tags (such as 'by xxx', 'watercolor', 'sketch', "
-            "'realistic'), and never add tags or sentences the user did not ask for that change the rating.")
+            "'realistic') on your own; the user's own style words stay as the user wrote them. Never add tags or sentences "
+            "the user did not ask for that change the rating.")
 
 EXAMPLE_IN = "masterpiece, best quality, 1girl, 图书馆里看书的女孩"
 EXAMPLE_ANIMA = ("masterpiece, best quality, 1girl, solo, sitting, reading, holding book, open book, library, bookshelf, "
@@ -232,38 +235,56 @@ def user_message(prompt, extra="", hints=()):
 
 
 def prepare(mode, prompt, extra, on, use_dict=True):
-    """返回 (system, user, hints)。hints 是字典查到的 [(中文, 标签)]。"""
-    hints = []
-    if use_dict and mode in (ANIMA, TRANSLATE):
-        d = tag_dict()
-        if d:
-            hints = d.lookup_zh(prompt)
-    return system_prompt(mode, on), user_message(prompt, extra, hints), hints
+    """返回 (system, user, ctx)。ctx 给 finish 用：字典查到的 hints、原样保留的画师串和画风词。"""
+    keep, rest = split_protected(prompt)
+    d = tag_dict() if use_dict else None
+    found = d.lookup_zh(rest) if d else []
+    hints = found if mode in (ANIMA, TRANSLATE) else []
+    ctx = {"hints": hints, "found": found, "protected": keep, "rest": rest, "extra": extra or "",
+           "cjk_style": bool(_ZH_STYLE.search(rest))}
+    return system_prompt(mode, on), user_message(rest, extra, hints), ctx
 
 
-def finish(text, mode, prompt, on, hints=(), use_dict=True, log=print):
-    """清理 AI 的输出。Anima 写法：标签查字典核对、按条件开关去掉不许加的类别（用户自己写的、字典查到的都保留）。"""
+def finish(text, mode, prompt, on, ctx=None, use_dict=True, log=print):
+    """清理 AI 的输出。
+    Anima 写法：标签查字典核对、按条件开关去掉不许加的类别（用户自己写的、字典查到的都保留）；
+    Anima 和纯自然语言：句子里按开关删掉 AI 补的内容；最后把用户的画师串和画风词原样放回去。"""
+    ctx = ctx or {}
+    hints = ctx.get("hints") or []
+    protected = ctx.get("protected") or []
+    rest = ctx.get("rest", prompt)
+    # 用户写了中文画风词（会被 AI 翻成英文）：这次不按画风词清理，免得把用户自己的删掉
+    style_ok = ctx.get("cjk_style", False)
     if mode != ANIMA:
-        return tp.clean_prompt(text, tags_mode=False)
-    s = tp.clean_prompt(text, tags_mode=True)
+        s = tp.clean_prompt(text, tags_mode=False)
+        if mode == NATURAL:
+            s = scrub_sentences(s, on, _user_words(rest, ctx), log)
+        return _put_back(s, protected, mode)
+    s = tp.clean_prompt(text, tags_mode=True, drop_styles=not style_ok)
     m = re.search(r"\.\s+(?=[A-Z])", s)
     head, tail = (s[:m.start()], s[m.end():]) if m else (s, "")
     d = tag_dict() if use_dict else None
-    mine = {tp.norm(t) for t in tp.split(prompt)} | {tag for _, tag in hints}
+    mine = {tp.norm(t) for t in tp.split(rest)} | {tag for _, tag in hints}
     if d:
-        mine |= {c for c in (d.canonical(t) for t in tp.split(prompt)) if c}
+        mine |= {c for c in (d.canonical(t) for t in tp.split(rest)) if c}
+    prot = {tp.norm(t) for t in protected}
     keep, fake, cut = [], [], []
     for t in tp.split(head):
         n = tp.norm(t)
+        if n in prot:   # AI 自己又写了一遍：放回去的时候用用户的原样
+            continue
         if n in mine or _QUALITY_RE.match(n):
             keep.append(t)
+            continue
+        if style_ok and (tp._STYLE_RE.search(t) or _MEDIUM_RE.search(t)):
+            keep.append(t)   # 用户中文画风词翻过来的，不按字典删
             continue
         if d:
             c = d.canonical(t)
             if not c:
                 fake.append(t)
                 continue
-            if d.cat.get(c) == 1:   # 画师
+            if d.cat.get(c) == 1:   # 画师（用户自己的已经拿出来了，这里的是 AI 加的）
                 fake.append(t)
                 continue
             n = c
@@ -283,5 +304,250 @@ def finish(text, mode, prompt, on, hints=(), use_dict=True, log=print):
         if n not in seen:
             seen.add(n)
             out.append(t)
-    head = ", ".join(out)
+    if tail.strip():
+        tail = scrub_sentences(tail.strip(), on, _user_words(rest, ctx), log)
+    head = ", ".join(_insert_after_quality(out, protected))
     return (head + ". " + tail.strip()) if tail.strip() else head
+
+
+# ---------------- 画师串、画风词：原样保留 ----------------
+_ZH_STYLE_WORDS = ("水彩|油画|素描|速写|厚涂|平涂|赛璐璐|半写实|写实|真人|照片|摄影|电影感|电影光|电影质感|像素|水墨|国风|古风|线稿|草图|"
+                   "三渲二|3D|3d|卡通|动漫|二次元|胶片|插画|板绘|手绘|低多边形|赛博朋克|蒸汽波|浮世绘|版画|黏土|粘土|彩铅|马克笔|"
+                   "印象派|极简|扁平|美式|日系|韩系|欧美|复古|油彩|丙烯|水粉|蜡笔|铅笔")
+_ZH_STYLE = re.compile(r"(?:" + _ZH_STYLE_WORDS + r")(?:风格|画风|风|质感|效果|渲染)?|画风|风格")
+_ZH_STYLE_ONLY = re.compile(r"^(?:" + _ZH_STYLE_WORDS + r"|风格|画风|风|质感|效果|渲染|的|感|式|\s)+$")
+_ARTIST_PREFIX = re.compile(r"^\(?\s*(?:@|by\s|artist\s*[:：])", re.I)
+_MEDIUM_RE = re.compile(r"\(medium\)|\\\(medium\\\)|^(?:monochrome|greyscale|grayscale|lineart|flat color|cel shading|anime coloring|"
+                        r"pixel art|traditional media|ukiyo-e|impressionism|chibi style)$", re.I)
+
+
+def _is_protected(seg, d):
+    t = seg.strip()
+    if not t:
+        return False
+    n = tp.norm(t)
+    if _QUALITY_RE.match(n):
+        return False   # 质量词照常交给 AI（指令里要它原样放最前面）
+    if _ARTIST_PREFIX.search(t):
+        return True
+    if _CJK.search(t):
+        # 只有整段都是画风说法才原样保留（「水彩风格」「新海诚画风」）；混着内容的交给 AI 翻译
+        return bool(_ZH_STYLE_ONLY.match(t)) or (len(t) <= 12 and re.search(r"(?:画风|风格)$", t) is not None)
+    if len(t.split()) > 6 or re.search(r"[.!?]$", t):
+        return False   # 一句话：交给 AI
+    cats = d.cat if d else tp.tag_categories()
+    c = (d.canonical(t) if d else None) or n
+    if cats.get(c) == 1:
+        return True
+    return bool(tp._STYLE_RE.search(t) or _MEDIUM_RE.search(t))
+
+
+def split_protected(prompt):
+    """用户的提示词 → (原样保留的画师串和画风词, 剩下交给 AI 的部分)。按逗号、换行切，保留原来的写法和权重括号。"""
+    d = tag_dict()
+    keep, rest = [], []
+    for seg in re.split(r"[,，\n]", prompt or ""):
+        if not seg.strip():
+            continue
+        (keep if _is_protected(seg, d) else rest).append(seg.strip())
+    return keep, ", ".join(rest)
+
+
+def _insert_after_quality(tags, protected):
+    i = 0
+    while i < len(tags) and _QUALITY_RE.match(tp.norm(tags[i])):
+        i += 1
+    return tags[:i] + list(protected) + tags[i:]
+
+
+def _put_back(s, protected, mode):
+    if not protected:
+        return s
+    if mode == NATURAL:
+        return ", ".join(protected) + ". " + s if s else ", ".join(protected)
+    return ", ".join(protected) + (", " + s if s else "")
+
+
+# ---------------- 句子：关掉的类别，AI 补的删掉 ----------------
+def _kw(words):
+    return [w.replace(" ", r"\s+") for w in words]
+
+
+_APPEAR_BODY = ["hair", "eyes", "eye", "pupils", "skin", "complexion", "bangs", "fringe", "eyebrows", "eyelashes", "lips",
+                "ears"]
+_APPEAR_TRAIT = ["ponytail", "twintails", "twin tails", "pigtails", "braid", "braids", "bun", "ahoge", "sidelocks",
+                 "animal ears", "cat ears", "fox ears", "dog ears", "rabbit ears", "bunny ears", "tail", "horns",
+                 "horn", "wings", "halo", "freckles", "mole", "fang", "fangs", "heterochromia", "breasts"]
+_CLOTHES = ["dress", "skirt", "shirt", "t-shirt", "blouse", "uniform", "jacket", "coat", "hoodie", "sweater", "cardigan",
+            "vest", "kimono", "yukata", "hakama", "apron", "bikini", "swimsuit", "leotard", "bodysuit", "pants", "shorts",
+            "jeans", "trousers", "thighhighs", "thigh-highs", "stockings", "pantyhose", "socks", "legwear", "shoes", "boots",
+            "sandals", "heels", "high heels", "loafers", "sneakers", "gloves", "hat", "cap", "beret", "hood", "necktie",
+            "bow tie", "bowtie", "neckerchief", "scarf", "choker", "collar", "ribbon", "ribbons", "bow", "hair ornament",
+            "hairclip", "hair clip", "hairband", "headband", "earrings", "jewelry", "necklace", "bracelet", "armor",
+            "cape", "cloak", "robe", "bra", "panties", "underwear", "lingerie", "serafuku", "suit", "tuxedo", "camisole",
+            "tank top", "crop top", "sleeves", "sleeve", "frills", "lace", "garter", "belt", "glasses", "veil", "tiara",
+            "crown", "clothes", "clothing", "outfit", "costume", "attire", "garment", "wears", "wearing", "dressed",
+            "nude", "naked", "topless", "barefoot"]
+_POSE = ["smile", "smiles", "smiling", "smiled", "grin", "grins", "grinning", "laugh", "laughs", "laughing", "blush",
+         "blushes", "blushing", "tears", "crying", "cries", "frown", "frowns", "frowning", "pout", "pouting", "wink",
+         "winks", "winking", "expression", "gaze", "looking at the viewer", "looks at the viewer", "pose", "poses",
+         "posing", "peace sign", "crossed arms", "arms crossed", "hand on her hip", "hands on her hips", "head tilted",
+         "tilts her head", "tilting her head"]
+_SCENE = ["background", "backdrop", "setting", "scenery", "landscape", "indoors", "outdoors", "room", "street", "city",
+          "cityscape", "forest", "woods", "beach", "ocean", "sea", "lake", "river", "school", "classroom", "library",
+          "bedroom", "cafe", "café", "station", "park", "garden", "field", "meadow", "mountain", "mountains", "sky",
+          "clouds", "cloud", "night", "sunset", "sunrise", "dusk", "dawn", "rain", "snow", "building", "buildings",
+          "window", "windows", "tree", "trees", "grass", "flowers", "stage", "bookshelf", "bookshelves", "shelves",
+          "table", "desk", "chair", "bench", "bed", "sofa", "couch", "road", "bridge", "shrine", "temple", "alley",
+          "rooftop", "stars", "water", "wall", "walls", "floor", "corridor", "hallway"]
+_LIGHT = ["lighting", "lit", "backlit", "backlighting", "sunlight", "moonlight", "candlelight", "lamplight", "daylight",
+          "glow", "glows", "glowing", "shadow", "shadows", "lens flare", "light rays", "sunbeam", "sunbeams", "bokeh",
+          "depth of field", "close-up", "closeup", "shot", "angle", "camera", "framing", "framed", "frame",
+          "composition", "viewpoint", "perspective", "portrait", "upper body", "full body", "cowboy shot",
+          "from above", "from below", "from behind", "low angle", "high angle", "light falls", "light streams",
+          "light pours", "light shines", "warm light", "soft light", "cold light"]
+_SENT_CATS = {   # 开关名: (关键词, 判定方式)
+    "补外貌": (_APPEAR_BODY + _APPEAR_TRAIT, "appear"),
+    "补服装": (_CLOTHES, "attr"),
+    "补动作表情": (_POSE, "word"),
+    "补背景": (_SCENE, "word"),
+    "补光线构图": (_LIGHT, "word"),
+}
+_COMPOUND = re.compile(r"\b([a-z]+)-(haired|eyed|skinned|eared|tailed|horned)\b", re.I)
+# 修饰词里算「具体属性」的：颜色、长短、发型……AI 自己补上这些就算新加了外貌 / 服装细节
+_ATTR = set("""black white blonde blond golden gold brown red blue green purple pink silver grey gray orange yellow aqua
+cyan teal violet crimson scarlet azure amber emerald platinum ash dark pale light multicolored two-tone gradient long short
+medium very twin messy wavy curly straight spiky fluffy large small big huge flat tall petite slender curvy tanned fair
+sleeveless frilly frilled pleated striped plaid lace see-through tight loose""".split())
+_STOP = set("""a an the her his their its my your our with and or has have had is are was were be being been wearing wears
+wear worn in on at of to by she he they it from into over under through behind beside near that which while as both very
+slightly softly gently also neatly""".split())
+_SYN = {"blond": "blonde", "golden": "blonde", "gold": "blonde", "gray": "grey", "eye": "eyes"}
+_PREP_LEFT = re.compile(r"(?:,\s*)?\b(?:with|wearing|in|at|on|inside|under|beneath|by|near|beside|behind|through|against|"
+                        r"under|across|before|among|amid|dressed in|clad in)\s+(?:(?:a|an|the|her|his|their|its)\s+)?$", re.I)
+_AND_LEFT = re.compile(r"(?:\s*,\s*(?:and\s+)?|\s+and\s+)(?:(?:a|an|the|her|his|their|its)\s+)?$", re.I)
+_AND_RIGHT = re.compile(r"^(?:\s*,)?\s+and\s+(?:(?:a|an|the|her|his|their|its)\s+)?", re.I)
+
+
+def _w(x):
+    x = x.lower()
+    x = _SYN.get(x, x)
+    return x
+
+
+def _forms(x):
+    x = _w(x)
+    out = {x}
+    for cut in ("es", "s"):
+        if x.endswith(cut) and len(x) > len(cut) + 2:
+            out.add(x[:-len(cut)])
+    return out
+
+
+def _user_words(rest, ctx):
+    """用户写过的英文词（包括字典把中文查成的标签）：句子里这些词组成的说法算用户自己的。"""
+    text = " ".join([rest, ctx.get("extra", "")] + [t for _, t in (ctx.get("found") or [])] +
+                    [t for _, t in (ctx.get("hints") or [])])
+    words = set()
+    for x in re.findall(r"[A-Za-z][A-Za-z'-]*", text.replace("_", " ")):
+        for f in _forms(x):
+            words.add(f)
+        for part in x.split("-"):
+            words |= _forms(part)
+    return words
+
+
+def _spans(sent, key):
+    """一句话里这一类的说法：[(开始, 结束, 关键词, 前面的修饰词)]。"""
+    words, how = _SENT_CATS[key]
+    pat = re.compile(r"\b(?:" + "|".join(sorted(_kw(words), key=len, reverse=True)) + r")\b", re.I)
+    out = []
+    for m in pat.finditer(sent):
+        mods, start = [], m.start()
+        for w in reversed(list(re.finditer(r"[A-Za-z][A-Za-z'-]*", sent[:m.start()]))):
+            between = sent[w.end():start]
+            if between.strip() or len(mods) >= 3 or w.group().lower() in _STOP:
+                break
+            mods.insert(0, w.group())
+            start = w.start()
+        out.append((start, m.end(), m.group(), mods, how))
+    if key == "补外貌":
+        for m in _COMPOUND.finditer(sent):
+            out.append((m.start(), m.end(), m.group(2), [m.group(1)], "compound"))
+    return out
+
+
+def _allowed(kw, mods, how, uw):
+    kws = re.split(r"\s+", kw)
+    have_kw = all(_forms(k) & uw for k in kws)
+    new_attr = [x for x in mods if _w(x) in _ATTR and not (_forms(x) & uw)]
+    if how == "compound":   # silver-haired：颜色是用户写过的才算
+        return not new_attr
+    if how == "appear":
+        if " ".join(kws).lower() in _APPEAR_TRAIT:
+            return have_kw and not new_attr
+        return not new_attr   # hair / eyes 本身不算外貌，带了用户没写过的颜色长短才算
+    if how == "attr":
+        return have_kw and not new_attr
+    return have_kw
+
+
+def _remove(sent, a, b):
+    """删掉 sent[a:b] 这个说法，连带它前面的 with / in / and 之类，尽量让句子还通顺。返回新句子或 None（删不干净）。"""
+    left, right = sent[:a], sent[b:]
+    m = _AND_LEFT.search(left)
+    if m and m.start() > 0 and not _PREP_LEFT.search(left):
+        return left[:m.start()] + right
+    m = _PREP_LEFT.search(left)
+    if m:
+        r = _AND_RIGHT.match(right)
+        if r:   # with long hair and blue eyes → 只删 long hair and：with blue eyes
+            return left + right[r.end():]
+        return left[:m.start()] + right
+    return None
+
+
+def _tidy(s):
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s+([,.;!?])", r"\1", s)
+    s = re.sub(r",\s*([,.;!?])", r"\1", s)
+    s = re.sub(r"\b(an?)\s+(?=[,.;!?]|$)", "", s)
+    s = re.sub(r"\ban (?=[b-df-hj-np-tv-z])", "a ", s, flags=re.I)
+    s = re.sub(r"\ba (?=[aeiou])", "an ", s, flags=re.I)
+    s = s.strip(" ,;")
+    return s[:1].upper() + s[1:] if s else s
+
+
+def scrub_sentences(text, on, uw, log=print):
+    """关掉的类别：句子里 AI 新补的说法删掉（用户写过的词组成的说法保留）。先删短语，删不干净就删整句（至少留一句）。"""
+    off = [k for k in _SENT_CATS if not on.get(k, True)]
+    if not off or not text.strip():
+        return text
+    sents = [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x.strip()]
+    out, removed = [], []
+    for sent in sents:
+        s, drop, part = sent, False, []
+        for _ in range(12):   # 一次删一个，删完重新找
+            bad = [sp for k in off for sp in _spans(s, k) if not _allowed(sp[2], sp[3], sp[4], uw)]
+            if not bad:
+                break
+            a, b, _, _, how = max(bad, key=lambda x: x[0])   # 从后往前删，前面的位置不变
+            n = s[:a] + s[b:] if how == "compound" else _remove(s, a, b)   # silver-haired girl → girl
+            if n is None:
+                drop = True
+                break
+            part.append(s[a:b].strip())
+            s = n
+        s = _tidy(s)
+        if drop or len(s.split()) < 3:
+            removed.append(sent.strip())
+            out.append(None)
+        else:
+            removed += part
+            out.append(s if s.endswith((".", "!", "?")) else s + ".")
+    kept = [x for x in out if x]
+    if not kept:   # 全删光了：留第一句删过短语的样子（或原句），别让描述整个没了
+        kept = [_tidy(sents[0])]
+    if removed:
+        log(f"[WWY反推] 按开关从句子里删掉：{' / '.join(removed)}")
+    return " ".join(kept)

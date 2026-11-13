@@ -96,6 +96,7 @@ class WWYCaption:
             "用完释放显存": ("BOOLEAN", {"default": True, "tooltip": "反推完结束模型进程，后面采样时显存够用"}),
         }, "optional": {
             "参考标签": ("STRING", {"forceInput": True, "tooltip": "接 WD14 的标签：交给模型参考（启动器的「标签 + 自然语言」）"}),
+            "API模型": ("STRING", {"default": "", "tooltip": "模型选 API 时用：填了就用这个模型名，不填用设置里的看图模型"}),
         }}
 
     RETURN_TYPES = ("STRING",)
@@ -105,7 +106,7 @@ class WWYCaption:
     DESCRIPTION = "看图写一段英文描述（只看第一张图）。本地模型跑在单独的进程里，LoRA 训练器的环境优先。"
 
     def run(self, 图像, 模型, 指令, 自定义指令, ToriiGate长短, 不描述画风, 识别角色名, 最多字数, 温度, 精度, 用完释放显存,
-            参考标签=""):
+            参考标签="", API模型=""):
         key = VLM_CHOICES[模型]
         opts = {"preset": PRESETS[指令], "prompt": 自定义指令, "torii_format": "long" if ToriiGate长短 == "长" else "short",
                 "use_names": 识别角色名}
@@ -117,7 +118,8 @@ class WWYCaption:
                 user = vc.user_prompt(opts) + (" " + tp.NO_STYLE_CAPTION if 不描述画风 else "")
                 if tags:
                     user += "\nReference tags (may contain mistakes): " + ", ".join(tags)
-                text = api.chat(vc.DEFAULT_SYSTEM, user, image=pil, max_tokens=最多字数, temperature=温度)
+                text = api.chat(vc.DEFAULT_SYSTEM, user, image=pil, max_tokens=最多字数, temperature=温度,
+                                model_override=API模型)
             else:
                 from .wwy.vlm_service import SERVICE
                 system, user = vc.build_prompt(key, opts, tags)
@@ -213,34 +215,39 @@ class WWYPromptEnhance:
             "温度": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.5, "step": 0.05}),
             "种子": ("INT", {"default": 0, "min": 0, "max": 0xffffffff, "tooltip": "换一个数字就重新写一遍"}),
             "用完释放显存": ("BOOLEAN", {"default": True}),
+        }, "optional": {
+            "API模型": ("STRING", {"default": "", "tooltip": "模型选 API 时用：填了就用这个模型名，不填用启动器 / config.json 里的设置"}),
         }}
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("提示词",)
     FUNCTION = "run"
     CATEGORY = CATEGORY
-    DESCRIPTION = "让大模型把提示词扩写成更适合出图的写法（不会加画师和画风）。可以关掉不想让它补的类别；Anima 写法会查字典核对标签。"
+    DESCRIPTION = ("让大模型把提示词扩写成更适合出图的写法（不会加画师和画风；你自己写的画师串、画风词原样保留）。"
+                   "可以关掉不想让它补的类别；Anima 写法会查字典核对标签。")
 
     def run(self, 提示词, 写法, 模型, 额外要求, 最多字数, 温度, 种子, 用完释放显存,
-            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True):
+            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True, API模型=""):
         key = TEXT_CHOICES[模型]
         on = {"补外貌": 补外貌, "补服装": 补服装, "补动作表情": 补动作表情, "补背景": 补背景, "补光线构图": 补光线构图}
-        system, user, hints = en.prepare(写法, 提示词, 额外要求, on, 查字典)
-        if hints:
-            print("[WWY反推] 字典查到：" + "；".join(f"{zh} → {tag}" for zh, tag in hints), flush=True)
+        system, user, ctx = en.prepare(写法, 提示词, 额外要求, on, 查字典)
+        if ctx["protected"]:
+            print("[WWY反推] 画师串 / 画风词原样保留：" + ", ".join(ctx["protected"]), flush=True)
+        if ctx["hints"]:
+            print("[WWY反推] 字典查到：" + "；".join(f"{zh} → {tag}" for zh, tag in ctx["hints"]), flush=True)
         if 种子:
             user += f"\n\n(variation #{种子})"
         try:
             if key == "api":
                 from .wwy import api
-                text = api.chat(system, user, max_tokens=最多字数, temperature=温度)
+                text = api.chat(system, user, max_tokens=最多字数, temperature=温度, model_override=API模型)
             else:
                 from .wwy.vlm_service import SERVICE
                 text = SERVICE.run(key, "auto", [{"file": "", "id": "t0", "system": system, "user": user}],
                                    max_tokens=最多字数, temperature=温度, unload=用完释放显存)[0]
         except vc.CaptionError as e:
             raise _err(e)
-        text = en.finish(text, 写法, 提示词, on, hints, 查字典, log=lambda m: print(m, flush=True))
+        text = en.finish(text, 写法, 提示词, on, ctx, 查字典, log=lambda m: print(m, flush=True))
         print(f"[WWY反推] AI 优化后：{text}", flush=True)
         return (text,)
 

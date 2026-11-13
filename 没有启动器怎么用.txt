@@ -32,5 +32,8 @@ WWY 反推插件：没有 WWY 启动器时怎么用
      qwen      通义千问 / 阿里云百炼（能看图反推）
      claude    Claude（能看图反推）
      custom    其他 OpenAI 兼容接口，要再填 "base_url" 和 "model"
+   看图反推用哪个模型：填了 "vision_model" 就用它；没填时 "model" 能看图就用 "model"
+   （Claude 全系、名字带 vl / qvq / omni 的、Qwen3.5 起的都算），否则用服务商默认的看图模型（通义是 qwen3-vl-plus）。
+   节点上的「API模型」填了的话，以节点上的为准。
    保存后重新运行节点就行，不用重启 ComfyUI。
    装了启动器时，以启动器「设置 → 报错诊断」里填的为准。

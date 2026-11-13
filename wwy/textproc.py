@@ -133,8 +133,9 @@ def drop_style(tags):
     return [t for t in tags if not _STYLE_RE.search(t)]
 
 
-def clean_prompt(s, tags_mode=False):
-    """去掉思考、代码块、「Prompt:」前缀；tags_mode：标签部分去重、括号转义（句子部分不动）。"""
+def clean_prompt(s, tags_mode=False, drop_styles=True):
+    """去掉思考、代码块、「Prompt:」前缀；tags_mode：标签部分去重、括号转义（句子部分不动）。
+    drop_styles：去掉 AI 加的画风标签（用户自己的画风词在 enhance.split_protected 里已经拿出来了，不会被删）。"""
     s = re.sub(r"<think>.*?</think>", "", s or "", flags=re.S).strip()
     s = re.sub(r"^```\w*\s*|\s*```$", "", s).strip()
     s = re.sub(r"^(\*\*)?(prompt|optimized prompt|rewritten prompt|output|example output)(\*\*)?\s*[:：]\s*", "", s, flags=re.I)
@@ -149,5 +150,5 @@ def clean_prompt(s, tags_mode=False):
         if n and n not in seen:
             seen.add(n)
             tags.append(t if r"\(" in t else escape_parens(t) if re.fullmatch(r"[^()]*\([^():]*\)[^()]*", t) else t)
-    out = ", ".join(drop_style(tags)[:MAX_TAGS])
+    out = ", ".join((drop_style(tags) if drop_styles else tags)[:MAX_TAGS])
     return (out + ". " + tail.strip()) if tail.strip() else out

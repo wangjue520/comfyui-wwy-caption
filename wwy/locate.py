@@ -173,17 +173,21 @@ def vlm_pythons():
 
 
 def ai_api():
-    """AI 接口设置 {provider, api_key, base_url, model, format}。
+    """AI 接口设置 {provider, api_key, base_url, model, vision_model, format}。
     先读启动器 / 训练器共用的 %APPDATA%\\WWY\\ai_api.json；那边没填 Key（没装启动器）时，读插件 config.json 里的 "api"：
-    {"api": {"provider": "deepseek", "api_key": "sk-...", "base_url": "", "model": ""}}，provider 可选 deepseek / qwen / claude / custom。"""
+    {"api": {"provider": "deepseek", "api_key": "sk-...", "base_url": "", "model": "", "vision_model": ""}}，provider 可选 deepseek / qwen / claude / custom。
+    vision_model：看图反推单独用的模型，不填时用 model（能看图的话），再不行用服务商默认的看图模型。"""
     a = _launcher_ai_api()
-    if a["api_key"]:
-        return a
     c = config().get("api") or {}
+    if a["api_key"]:
+        if isinstance(c, dict) and not a["vision_model"]:   # 启动器里没有看图模型这一项时，可以在插件 config.json 里单独填
+            a["vision_model"] = str(c.get("vision_model") or "").strip()
+        return a
     if not isinstance(c, dict) or not str(c.get("api_key") or "").strip():
         return a
     return {"provider": str(c.get("provider") or "deepseek").strip(), "api_key": str(c.get("api_key") or "").strip(),
             "base_url": str(c.get("base_url") or "").strip(), "model": str(c.get("model") or "").strip(),
+            "vision_model": str(c.get("vision_model") or "").strip(),
             "format": str(c.get("format") or "openai").strip()}
 
 
@@ -199,4 +203,5 @@ def _launcher_ai_api():
         v = {}
     return {"provider": (v.get("diag_llm_provider") or "deepseek").strip(), "api_key": (v.get("diag_llm_api_key") or "").strip(),
             "base_url": (v.get("diag_llm_base_url") or "").strip(), "model": (v.get("diag_llm_model") or "").strip(),
+            "vision_model": (v.get("diag_llm_vision_model") or "").strip(),
             "format": (v.get("diag_llm_format") or "openai").strip()}

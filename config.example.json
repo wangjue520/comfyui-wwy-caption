@@ -8,6 +8,7 @@
     "provider": "deepseek",
     "api_key": "",
     "base_url": "",
-    "model": ""
+    "model": "",
+    "vision_model": ""
   }
 }

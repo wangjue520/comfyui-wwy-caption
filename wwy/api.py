@@ -24,7 +24,23 @@ PROVIDERS = {
 }
 
 
+# 能看图的模型名：Claude 全系都能看图；其他家看名字（vl / qvq / omni / vision，Qwen3.5 起原生多模态）
+_VISION_NAME = re.compile(r"(?:^|[-_./])(?:vl|qvq|omni|vision|visual)(?:$|[-_./\d])|qwen3\.[5-9]|qwen[4-9]|gpt-4o|gpt-[5-9]|gemini|glm-\d+(?:\.\d+)?v",
+                          re.I)
+
+
+def can_see(provider, model):
+    if not model:
+        return False
+    if provider == "claude" or model.lower().startswith("claude"):
+        return True
+    return bool(_VISION_NAME.search(model))
+
+
 def resolve(vision=False, model_override=""):
+    """返回 (格式, 地址, 模型, Key)。模型按这个顺序选：
+    节点上填的「API模型」 → 看图时：设置里单独填的看图模型 → 设置里的模型（能看图才用）→ 服务商默认的看图模型；
+    写字时：设置里的模型 → 服务商默认模型。"""
     a = locate.ai_api()
     p = PROVIDERS.get(a["provider"]) or PROVIDERS["deepseek"]
     if not a["api_key"]:
@@ -33,13 +49,22 @@ def resolve(vision=False, model_override=""):
                               "在 \"api\" 里填 provider 和 api_key，保存后重新运行。详见「没有启动器怎么用.txt」。")
     fmt = (a["format"] or p["format"]) if a["provider"] == "custom" else p["format"]
     base = (a["base_url"] or p["base"]).rstrip("/")
-    model = model_override.strip() if model_override and model_override.strip() else ""
+    model = (model_override or "").strip()
     if not model:
         if vision:
-            model = p["vision"] or (a["model"] if a["provider"] == "custom" else "")
+            mine = a.get("model", "")
+            if a.get("vision_model"):
+                model = a["vision_model"]
+            elif mine and (a["provider"] == "custom" or can_see(a["provider"], mine)):
+                model = mine
+            else:
+                model = p["vision"]
             if not model:
                 raise vc.CaptionError(f"现在设置的服务商「{p['label']}」不能看图。看图反推请换成通义千问（百炼）或 Claude，"
-                                      "或者在节点的「API 模型」里填一个能看图的模型名。")
+                                      "或者在节点的「API模型」里填一个能看图的模型名（也可以在 config.json 的 \"api\" 里填 \"vision_model\"）。")
+            if mine and model != mine and not a.get("vision_model"):
+                print(f"[WWY反推] 设置里的模型 {mine} 看不了图，看图改用 {model}"
+                      "（要指定别的，在节点的「API模型」或 config.json 的 \"vision_model\" 里填）", flush=True)
         else:
             model = a["model"] or p["model"]
     if not base or not model:
