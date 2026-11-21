@@ -122,10 +122,19 @@ class VLM:
         from transformers import AutoProcessor
         self.torch = torch
         self.key = key
-        kw = {"dtype": torch.bfloat16, "device_map": "cuda"}
+        import importlib.util
+        # 整合包 / 只装了 ComfyUI 的环境里通常没有 accelerate、bitsandbytes：
+        # 没 accelerate 就不用 device_map（先读进内存再整个搬上显卡）；没 bitsandbytes 就不能量化
+        has_acc = importlib.util.find_spec("accelerate") is not None
+        has_bnb = importlib.util.find_spec("bitsandbytes") is not None
+        kw = {"dtype": torch.bfloat16, "device_map": "cuda"} if has_acc else {"dtype": torch.bfloat16}
         q = quant or "auto"
         if q == "auto":
             q = auto_quant(size_gb)
+        if q in ("4bit", "8bit") and not (has_acc and has_bnb):
+            log("⚠ 这个环境没装 bitsandbytes / accelerate，不能量化，改用原精度（bf16）。显存不够会很慢或报错："
+                "可以换小一点的模型（Qwen3-VL-4B），或者改用云端 API")
+            q = "bf16"
         if q in ("4bit", "8bit"):
             from transformers import BitsAndBytesConfig
             kw["quantization_config"] = (BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
@@ -145,6 +154,8 @@ class VLM:
                 errs.append(f"{cls_name}: {e}")
         if model is None:
             raise RuntimeError("模型加载失败：\n" + "\n".join(errs))
+        if not has_acc:
+            model = model.to("cuda")
         self.model = model.eval()
         pkw = {"min_pixels": 256 * 32 * 32, "max_pixels": 1024 * 1024} if key == "toriigate" else {}
         self.proc = AutoProcessor.from_pretrained(d, **pkw)
