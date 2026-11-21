@@ -95,6 +95,23 @@ def _png_b64(pil):
 
 
 def chat(system, user, image=None, max_tokens=800, temperature=0.4, model_override=""):
+    try:
+        return _chat(system, user, image, max_tokens, temperature, model_override)
+    except _NoBody:
+        # 会先「思考」的模型（DeepSeek V4 这类）：思考把字数上限用完了，正文是空的。不是拒答，放大上限重来一次
+        big = max(int(max_tokens) * 5, 4096)
+        try:
+            return _chat(system, user, image, big, temperature, model_override)
+        except _NoBody:
+            raise vc.CaptionError(f"回复被长度上限（{big}）截断，没有正文：这个模型会先思考，把思考的字数也算进去了。"
+                                  "换一个不带思考的模型（比如通义千问），或者把节点的「最多字数」调大") from None
+
+
+class _NoBody(Exception):
+    pass
+
+
+def _chat(system, user, image, max_tokens, temperature, model_override):
     fmt, base, model, key = resolve(vision=image is not None, model_override=model_override)
     if fmt == "anthropic":
         url = base + ("/messages" if base.endswith("/v1") else "/v1/messages")
@@ -122,6 +139,8 @@ def chat(system, user, image=None, max_tokens=800, temperature=0.4, model_overri
             text = " ".join(x.get("text", "") for x in text if isinstance(x, dict))
         finish, refusal = ch.get("finish_reason"), msg.get("refusal")
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    if not text and str(finish or "").lower() in ("length", "max_tokens"):
+        raise _NoBody()
     why = vc.refusal_reason(text, finish, refusal)
     if why:
         raise vc.CaptionError(why)
