@@ -7,6 +7,7 @@ WWY 反推：照 WWY 启动器「图片反推」页的逻辑做的 ComfyUI 节�
   反推：筛选标签        去掉画师 / 角色 / 作品 / 元标签 / 人物固有特征，黑名单、白名单
   合并提示词            主提示词 + 反推标签 + 描述，去重
   AI 优化提示词         本地 Qwen3-VL 或 AI 接口，把提示词扩写成 Anima / 自然语言的写法
+  LoRA 堆（WWY）       想挂几个挂几个，全用 ComfyUI 自带控件（不会像 Power Lora Loader 那样点不动）
 """
 import os
 import tempfile
@@ -17,6 +18,7 @@ from PIL import Image
 from .wwy import textproc as tp
 from .wwy import enhance as en
 from .wwy import vlm_core as vc
+from .wwy.lora_stack import WWYLoraStack
 
 CATEGORY = "WWY 反推"
 
@@ -258,6 +260,7 @@ NODE_CLASS_MAPPINGS = {
     "WWYTagFilter": WWYTagFilter,
     "WWYPromptMerge": WWYPromptMerge,
     "WWYPromptEnhance": WWYPromptEnhance,
+    "WWYLoraStack": WWYLoraStack,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WWYTagger": "反推：WD14 标签",
@@ -265,5 +268,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WWYTagFilter": "反推：筛选标签",
     "WWYPromptMerge": "合并提示词",
     "WWYPromptEnhance": "AI 优化提示词",
+    "WWYLoraStack": "LoRA 堆（WWY）",
 }
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+WEB_DIRECTORY = "./web"
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

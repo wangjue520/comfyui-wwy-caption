@@ -1,6 +1,6 @@
-# comfyui-wwy-caption · WWY 反推
+# comfyui-wwy-caption · WWY 反推 + LoRA 堆
 
-把 [WWY 启动器](https://github.com/wangjue520/forge-webui-launcher)「图片反推」页的那一套做成 ComfyUI 节点：WD14 标签反推、标签筛选、自然语言反推、合并提示词、AI 优化提示词。模型和 AI 接口设置都和启动器、[WWY LoRA 训练器](https://github.com/wangjue520/wwy-lora-trainer) 共用，那边下载过的模型这边不用再下。
+把 [WWY 启动器](https://github.com/wangjue520/forge-webui-launcher)「图片反推」页的那一套做成 ComfyUI 节点：WD14 标签反推、标签筛选、自然语言反推、合并提示词、AI 优化提示词。另外带一个不会点不动的 LoRA 堆。模型和 AI 接口设置都和启动器、[WWY LoRA 训练器](https://github.com/wangjue520/wwy-lora-trainer) 共用，那边下载过的模型这边不用再下。
 
 **推荐用 WWY 启动器（或整合包）启动 ComfyUI。** 没有启动器也能用，就是要自己配几样东西，见 [没有启动器怎么用.txt](没有启动器怎么用.txt)。
 
@@ -29,6 +29,16 @@
 - AI 自己不会加画师和画风；Anima 写法里，AI 加的画风标签会自动删掉（你写的不受影响）。
 - 「API模型」：模型选 API 时可以在节点上直接填模型名，不填用设置里的。
 - 「种子」换个数字就重新写一遍；「额外要求」写具体想法，比如「换成夜晚」。
+
+### LoRA 堆（WWY）
+
+在「WWY」分类下，双击画布搜「LoRA 堆」。
+
+- 点「➕ 加一个 LoRA」想挂几个挂几个，「➖ 去掉最后一个」删最后一个；右键节点可以删掉中间某一个、把某一个往上挪。
+- 每个 LoRA：选文件、调强度（箭头每次 0.05，点数字直接填，按住左右拖）、开关（关掉 = 先不用，文件和强度留着）。文件选 None 或强度 0 也等于不挂。
+- 只接 model 就只改模型；接了 clip，带文本编码器部分的 LoRA 也会改 clip（从 CLIP 输出接出去用）。
+- 为什么不用 rgthree 的 Power Lora Loader：它的控件是自己画的，新版 ComfyUI 前端会改掉控件宽度，点箭头、点数字、开关经常没反应（[rgthree-comfy#731](https://github.com/rgthree/rgthree-comfy/issues/731)）。这个节点全用 ComfyUI 自带的下拉框、数字框和开关，没有这个问题。
+- 按 R 刷新模型列表时，LoRA 列表也一起刷新。
 
 ## 模型和环境
 
