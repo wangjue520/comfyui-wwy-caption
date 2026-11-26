@@ -221,6 +221,8 @@ class WWYPromptEnhance:
             "API模型": ("STRING", {"default": "", "tooltip": "模型选 API 时用：填了就用这个模型名，不填用启动器 / config.json 里的设置"}),
             "系统提示词": ("STRING", {"forceInput": True, "tooltip": "接上就用这段当系统提示词（比如 MOSS 官方的扩写规则），"
                                                               "上面的「写法」、各个「补」开关和查字典都不再起作用，AI 写什么就原样输出"}),
+            "图像": ("IMAGE", {"tooltip": "接上就把这张图（第一张）一起交给模型看，比如照着参考图排版。"
+                                         "选 API 时要用能看图的模型（DeepSeek 不行，换通义千问或 Claude，或在「API模型」里填看图模型）"}),
         }}
 
     RETURN_TYPES = ("STRING",)
@@ -231,7 +233,8 @@ class WWYPromptEnhance:
                    "可以关掉不想让它补的类别；Anima 写法会查字典核对标签。")
 
     def run(self, 提示词, 写法, 模型, 额外要求, 最多字数, 温度, 种子, 用完释放显存,
-            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True, API模型="", 系统提示词=None):
+            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True, API模型="", 系统提示词=None,
+            图像=None):
         key = TEXT_CHOICES[模型]
         on = {"补外貌": 补外貌, "补服装": 补服装, "补动作表情": 补动作表情, "补背景": 补背景, "补光线构图": 补光线构图}
         custom = bool(系统提示词 and 系统提示词.strip())
@@ -247,14 +250,27 @@ class WWYPromptEnhance:
             print("[WWY反推] 字典查到：" + "；".join(f"{zh} → {tag}" for zh, tag in ctx["hints"]), flush=True)
         if 种子:
             user += f"\n\n(variation #{种子})"
+        pil = _pil(图像) if 图像 is not None else None
         try:
             if key == "api":
                 from .wwy import api
-                text = api.chat(system, user, max_tokens=最多字数, temperature=温度, model_override=API模型)
+                text = api.chat(system, user, image=pil, max_tokens=最多字数, temperature=温度, model_override=API模型)
             else:
                 from .wwy.vlm_service import SERVICE
-                text = SERVICE.run(key, "auto", [{"file": "", "id": "t0", "system": system, "user": user}],
-                                   max_tokens=最多字数, temperature=温度, unload=用完释放显存)[0]
+                path = ""
+                if pil is not None:
+                    fd, path = tempfile.mkstemp(suffix=".png", prefix="wwy_enh_")
+                    os.close(fd)
+                    pil.save(path)
+                try:
+                    text = SERVICE.run(key, "auto", [{"file": path, "id": "t0", "system": system, "user": user}],
+                                       max_tokens=最多字数, temperature=温度, unload=用完释放显存)[0]
+                finally:
+                    if path:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
         except vc.CaptionError as e:
             raise _err(e)
         if custom:
