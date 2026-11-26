@@ -219,6 +219,8 @@ class WWYPromptEnhance:
             "用完释放显存": ("BOOLEAN", {"default": True}),
         }, "optional": {
             "API模型": ("STRING", {"default": "", "tooltip": "模型选 API 时用：填了就用这个模型名，不填用启动器 / config.json 里的设置"}),
+            "系统提示词": ("STRING", {"forceInput": True, "tooltip": "接上就用这段当系统提示词（比如 MOSS 官方的扩写规则），"
+                                                              "上面的「写法」、各个「补」开关和查字典都不再起作用，AI 写什么就原样输出"}),
         }}
 
     RETURN_TYPES = ("STRING",)
@@ -229,10 +231,16 @@ class WWYPromptEnhance:
                    "可以关掉不想让它补的类别；Anima 写法会查字典核对标签。")
 
     def run(self, 提示词, 写法, 模型, 额外要求, 最多字数, 温度, 种子, 用完释放显存,
-            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True, API模型=""):
+            补外貌=True, 补服装=True, 补动作表情=True, 补背景=True, 补光线构图=True, 查字典=True, API模型="", 系统提示词=None):
         key = TEXT_CHOICES[模型]
         on = {"补外貌": 补外貌, "补服装": 补服装, "补动作表情": 补动作表情, "补背景": 补背景, "补光线构图": 补光线构图}
-        system, user, ctx = en.prepare(写法, 提示词, 额外要求, on, 查字典)
+        custom = bool(系统提示词 and 系统提示词.strip())
+        if custom:   # 外面接了系统提示词：原样用它，不走 Anima / 自然语言那一套整理
+            system = 系统提示词.strip()
+            user = 提示词.strip() + (f"\n\n{额外要求.strip()}" if 额外要求.strip() else "")
+            ctx = {"protected": [], "hints": []}
+        else:
+            system, user, ctx = en.prepare(写法, 提示词, 额外要求, on, 查字典)
         if ctx["protected"]:
             print("[WWY反推] 画师串 / 画风词原样保留：" + ", ".join(ctx["protected"]), flush=True)
         if ctx["hints"]:
@@ -249,7 +257,10 @@ class WWYPromptEnhance:
                                    max_tokens=最多字数, temperature=温度, unload=用完释放显存)[0]
         except vc.CaptionError as e:
             raise _err(e)
-        text = en.finish(text, 写法, 提示词, on, ctx, 查字典, log=lambda m: print(m, flush=True))
+        if custom:
+            text = (text or "").strip()
+        else:
+            text = en.finish(text, 写法, 提示词, on, ctx, 查字典, log=lambda m: print(m, flush=True))
         print(f"[WWY反推] AI 优化后：{text}", flush=True)
         return (text,)
 
