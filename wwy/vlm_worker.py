@@ -9,9 +9,10 @@
 修 ToriiGate 停不下来的停止符），两边打出来的标一样。
 
 用 -I 启动（不看用户的 PYTHONPATH 等），所以不 import 启动器的任何模块；提示词由启动器拼好传进来。
+环境变量 WWY_VLM_LIBS：插件自带的 transformers 目录（ComfyUI 的太旧时用），放到 sys.path 最前面。
 
 通信：stdin 每行一个 JSON 命令，stdout 以「@@{json}」行回报，其余输出是日志。
-  {"cmd": "load", "dir": 模型目录, "key": "toriigate", "quant": "auto", "size_gb": 10, "batch": 0}
+  {"cmd": "load", "dir": 模型目录, "key": "toriigate", "quant": "auto", "size_gb": 10, "batch": 0, "min_tf": "5.0"}
       → {"ev": "loaded", "quant": "bf16", "bs": 4} / {"ev": "load_failed", "error": ...}
   {"cmd": "run", "items": [{"file", "system", "user"}], "max_tokens": 512, "temperature": 0.6, "cancel_file": 路径}
       → 每张 {"ev": "item", "file", "text"} 或 {"ev": "item", "file", "error"}，最后 {"ev": "done", "cancelled"}
@@ -28,6 +29,21 @@ import sys
 import threading
 import traceback
 import warnings
+
+
+def _add_libs():
+    """插件自带的 transformers（ComfyUI 的太旧时装的，见 tf_env.py）放到最前面，盖过环境里的旧版本。
+    要在 import transformers / huggingface_hub 之前做。"""
+    d = os.environ.get("WWY_VLM_LIBS") or ""
+    if d and os.path.isdir(d):
+        import site
+        site.addsitedir(d)   # 顺便处理里面的 .pth
+        while d in sys.path:
+            sys.path.remove(d)
+        sys.path.insert(0, d)
+
+
+_add_libs()
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -85,6 +101,26 @@ def watch_parent(pid):
     threading.Thread(target=wait_windows if os.name == "nt" else poll_posix, daemon=True).start()
 
 
+def _at_least(have, need):
+    """版本号比较（'5.18.0' >= '5.0'），不依赖 packaging。"""
+    import re
+
+    def t(v):
+        out = []
+        for p in re.split(r"[.+-]", str(v)):
+            m = re.match(r"\d+", p)
+            if not m:
+                break
+            out.append(int(m.group()))
+            if m.group() != p:
+                break
+        return out
+
+    h, n = t(have), t(need)
+    w = max(len(h), len(n))
+    return bool(h) and h + [0] * (w - len(h)) >= n + [0] * (w - len(n))
+
+
 def vram_free_gb():
     import torch
     free, _total = torch.cuda.mem_get_info()
@@ -113,13 +149,17 @@ def pick_batch(want):
 
 
 class VLM:
-    def __init__(self, d, key, quant="auto", size_gb=17, batch=0):
+    def __init__(self, d, key, quant="auto", size_gb=17, batch=0, min_tf=""):
         import torch
         if not torch.cuda.is_available():
             raise RuntimeError(f"这个环境里的 PyTorch（{torch.__version__}）用不了显卡：显卡驱动太旧、装成了 CPU 版，"
                                "或者不是 NVIDIA 显卡。可以改用云端 API。")
         import transformers
         from transformers import AutoProcessor
+        tv = transformers.__version__
+        log(f"PyTorch {torch.__version__}，transformers {tv}" + ("（插件自带）" if os.environ.get("WWY_VLM_LIBS") else ""))
+        if min_tf and not _at_least(tv, min_tf):
+            raise RuntimeError(f"这个环境的 transformers 是 {tv}，这个模型要 {min_tf} 以上")
         self.torch = torch
         self.key = key
         import importlib.util
@@ -157,7 +197,11 @@ class VLM:
         if not has_acc:
             model = model.to("cuda")
         self.model = model.eval()
-        pkw = {"min_pixels": 256 * 32 * 32, "max_pixels": 1024 * 1024} if key == "toriigate" else {}
+        pkw = {}
+        if key == "toriigate":   # 视觉 token 的像素上下限；transformers 5 改成 size={shortest_edge, longest_edge}，旧写法要删了
+            lo, hi = 256 * 32 * 32, 1024 * 1024
+            pkw = ({"size": {"shortest_edge": lo, "longest_edge": hi}} if _at_least(tv, "5.0")
+                   else {"min_pixels": lo, "max_pixels": hi})
         self.proc = AutoProcessor.from_pretrained(d, **pkw)
         # 停止符：ToriiGate 0.5 没带 generation_config.json，只认 <|endoftext|>，可每句话以 <|im_end|> 结尾——
         # 写完描述也停不下来，每张图都生成满 max_tokens
@@ -239,7 +283,7 @@ class Worker:
         try:
             self.vlm = None
             self.vlm = VLM(c["dir"], c.get("key") or "", c.get("quant") or "auto", float(c.get("size_gb") or 17),
-                           int(c.get("batch") or 0))
+                           int(c.get("batch") or 0), c.get("min_tf") or "")
             emit(ev="loaded", quant=self.vlm.quant, bs=self.vlm.bs)
         except Exception as e:
             traceback.print_exc()

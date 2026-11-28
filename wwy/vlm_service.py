@@ -8,11 +8,13 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 
 from . import locate
+from . import tf_env
 from . import vlm_core as vc
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vlm_worker.py")
@@ -51,11 +53,13 @@ class Service:
         self.cancel_file = os.path.join(tempfile.gettempdir(), f"wwy_comfy_vlm_cancel_{os.getpid()}.flag")
 
     # ---------- 进程 ----------
-    def _start(self, py):
+    def _start(self, py, libs=""):
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1",
                    HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", WWY_PARENT_PID=str(os.getpid()))
-        for k in ("PYTHONHOME", "PYTHONPATH"):
+        for k in ("PYTHONHOME", "PYTHONPATH", "WWY_VLM_LIBS"):
             env.pop(k, None)
+        if libs:
+            env["WWY_VLM_LIBS"] = libs   # 插件自带的 transformers（见 tf_env.py）
         self.events = []
         p = subprocess.Popen([py, "-I", "-X", "utf8", "-u", WORKER], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, env=env, creationflags=_NO_WINDOW)
@@ -152,26 +156,48 @@ class Service:
             return d
         self.release()
         _free_comfy_vram()
-        errs = []
+        need = info.get("min_tf") or ""
+        errs, cands = [], []
         for name, py in locate.vlm_pythons():
-            log(f"用{name}加载「{info['label']}」：{py}")
-            self._start(py)
+            v = tf_env.pkg_version(py, "transformers")
+            if need and v and not tf_env.at_least(v, need):
+                errs.append(f"{name}：transformers 是 {v}，这个模型要 {need} 以上（跳过）")
+                continue
+            cands.append((name, py, ""))
+        if need and not tf_env.at_least(tf_env.pkg_version(sys.executable, "transformers"), need):
+            # 上面的环境都不够新（或者够新的加载失败）时最后试：ComfyUI 的 Python + 插件自带的新 transformers，
+            # 不改 ComfyUI 本身。ComfyUI 自己的已经够新就不用（上面试过了，问题不在版本）
+            libs = tf_env.libs_for(sys.executable, need)
+            cands.append(("ComfyUI 的环境 + 插件自带的 transformers", sys.executable, libs or "install"))
+        for name, py, libs in cands:
+            if libs == "install":
+                try:
+                    libs = tf_env.install_libs(py, need, log)
+                except Exception as e:
+                    errs.append(f"{name}：自动安装 transformers {need} 失败 —— {e}")
+                    continue
+            log(f"用{name}加载「{info['label']}」：{py}" + (f"（{libs}）" if libs else ""))
+            self._start(py, libs)
             ev = self._wait(("hello",), timeout=120)
             if ev.get("ev") != "hello":
                 errs.append(f"{name}：模型进程没起来（{ev}）")
                 self.release()
                 continue
-            self._send({"cmd": "load", "dir": d, "key": key, "quant": quant, "size_gb": info["size_gb"], "batch": 1})
+            self._send({"cmd": "load", "dir": d, "key": key, "quant": quant, "size_gb": info["size_gb"], "batch": 1,
+                        "min_tf": need})
             ev = self._wait(("loaded", "load_failed"))
             if ev.get("ev") == "loaded":
-                self.loaded = (key, d, quant, py)
+                self.loaded = (key, d, quant, py, libs)
                 log(f"模型已加载（{ev.get('quant')}）")
                 return d
             errs.append(f"{name}：{ev.get('error') or ev}")
             self.release()
         hint = ""
-        if key == "toriigate":
-            hint = "\nToriiGate 0.5 要 transformers 5 以上：装了 WWY LoRA 训练器时会用训练器的环境（在插件的 config.json 里填 trainer_root）。"
+        if need and any("自动安装" in e for e in errs):
+            hint = (f"\n\n{info['label'].split('（')[0]} 要 transformers {need} 以上。自动安装没成功的话可以：\n"
+                    "  · 装了 WWY LoRA 训练器：在插件的 config.json 里填 \"trainer_root\"，用训练器的环境；\n"
+                    "  · 或者在 config.json 的 \"vlm_python\" 里指定一个装了 transformers 5 的 Python；\n"
+                    "  · 或者换 Qwen3-VL / JoyCaption，或者用云端 API。")
         raise vc.CaptionError("自然语言模型加载失败：\n" + "\n".join(errs) + hint)
 
     # ---------- 生成 ----------

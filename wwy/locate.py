@@ -142,14 +142,31 @@ def use_mirror():
     return True if v is None else bool(v)
 
 
+def site_packages(py):
+    """这个 Python 的 site-packages：
+    Windows 整合包 / 正常安装（python/Lib/site-packages）、venv（<venv>/Lib/site-packages）、Linux（lib/pythonX.Y/site-packages）。"""
+    if not py:
+        return ""
+    here = os.path.dirname(os.path.abspath(py))
+    root = os.path.dirname(here)
+    for sp in (os.path.join(here, "Lib", "site-packages"), os.path.join(root, "Lib", "site-packages")):
+        if os.path.isdir(sp):
+            return sp
+    lib = os.path.join(root, "lib")
+    try:
+        for n in sorted(os.listdir(lib), reverse=True):
+            if n.startswith("python") and os.path.isdir(os.path.join(lib, n, "site-packages")):
+                return os.path.join(lib, n, "site-packages")
+    except OSError:
+        pass
+    return ""
+
+
 def _env_ok(py, need=("torch", "transformers", "PIL")):
     if not py or not os.path.isfile(py):
         return False
-    root = os.path.dirname(os.path.dirname(os.path.abspath(py)))
-    for sp in (os.path.join(root, "Lib", "site-packages"), os.path.join(os.path.dirname(py), "Lib", "site-packages")):
-        if os.path.isdir(sp):
-            return all(os.path.isdir(os.path.join(sp, n)) for n in need)
-    return False
+    sp = site_packages(py)
+    return bool(sp) and all(os.path.isdir(os.path.join(sp, n)) for n in need)
 
 
 def vlm_pythons():

@@ -13,8 +13,10 @@ WWY 反推插件：没有 WWY 启动器时怎么用
 2. 自然语言反推用哪个模型
    没有启动器 / 训练器时，模型在 ComfyUI 自己的 Python 环境里跑。
      · Qwen3-VL（4B / 8B）：可以用。
-     · ToriiGate 0.5：要 transformers 5 以上，ComfyUI 自带的版本跑不了，会报错。
-   装了 WWY LoRA 训练器的话，在 config.json 里填 "trainer_root": "训练器文件夹"，就会用训练器的环境跑 ToriiGate。
+     · ToriiGate 0.5：要 transformers 5 以上。ComfyUI 自带的版本不够新时，第一次用会自动给反推单独装一份
+       （放在本插件文件夹的 _vlm_libs 里，几十 MB，要联网），不改 ComfyUI 自己的 transformers，不影响别的插件。
+   自动安装不成功的话：装了 WWY LoRA 训练器，在 config.json 里填 "trainer_root": "训练器文件夹"，就会用训练器的环境跑；
+   或者在 "vlm_python" 里填一个装了 transformers 5 的 Python。
 
 3. 用网上的 AI 服务（「模型」选 API 时）
    打开本插件文件夹里的 config.json（没有的话，把 config.example.json 复制一份、改名成 config.json），
