@@ -35,11 +35,11 @@ MARK_VERSION = 2
 # ============================================================
 # 模型和提示词（和训练器 captionutil.py 保持一致）
 # ============================================================
-# min_tf：要多新的 transformers。ToriiGate 0.5 是 Qwen3.5 架构（qwen3_5），5.0 才有；Qwen3-VL 是 4.57 加的。
+# min_tf：要多新的 transformers。ToriiGate 0.5 是 Qwen3.5 架构（qwen3_5），5.2.0 才加进来（5.0 / 5.1 都不认识）；Qwen3-VL 是 4.57 加的。
 # 能用的环境都不够新时，插件给 ComfyUI 的 Python 单独装一份新的（tf_env.py），不改 ComfyUI 本身。
 VLM_MODELS = {
     "toriigate": {"label": "ToriiGate 0.5（二次元专精，可参考 WD14 标签）", "repo": "Minthy/ToriiGate-0.5", "size_gb": 10,
-                  "min_tf": "5.0"},
+                  "min_tf": "5.2"},
     "joycaption": {"label": "JoyCaption Beta One（通用，描述细致）", "repo": "fancyfeast/llama-joycaption-beta-one-hf-llava", "size_gb": 17},
     "qwen3vl8b": {"label": "Qwen3-VL-8B abliterated（无审查，写实友好）", "repo": "huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated", "size_gb": 17.5,
                   "min_tf": "4.57"},

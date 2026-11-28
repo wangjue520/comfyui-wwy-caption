@@ -2,9 +2,9 @@
 """
 跑自然语言模型要多新的 transformers，以及「插件自带的 transformers」。
 
-ToriiGate 0.5 是 Qwen3.5 架构（model_type = qwen3_5），transformers 5 才认识；ComfyUI 自带的多半还是 4.5x。
+ToriiGate 0.5 是 Qwen3.5 架构（model_type = qwen3_5），transformers 5.2 才认识；ComfyUI 自带的多半还是 4.5x。
 直接升级 ComfyUI 的 transformers 可能弄坏 ComfyUI 本身或别的插件，所以这里不动它：
-  用 ComfyUI 自己的 Python，把 transformers 5 和它要的新依赖装进插件目录下单独的文件夹（pip --target），
+  用 ComfyUI 自己的 Python，把新版 transformers 和它要的新依赖装进插件目录下单独的文件夹（pip --target），
   只有反推子进程启动时把这个文件夹放到 sys.path 最前面。torch / numpy / PIL 照样用 ComfyUI 的，不重复下载。
 
 装什么由 pip 自己算：先在 ComfyUI 的环境里 --dry-run（会参考已经装了的包），

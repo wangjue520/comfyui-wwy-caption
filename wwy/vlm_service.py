@@ -196,7 +196,7 @@ class Service:
         if need and any("自动安装" in e for e in errs):
             hint = (f"\n\n{info['label'].split('（')[0]} 要 transformers {need} 以上。自动安装没成功的话可以：\n"
                     "  · 装了 WWY LoRA 训练器：在插件的 config.json 里填 \"trainer_root\"，用训练器的环境；\n"
-                    "  · 或者在 config.json 的 \"vlm_python\" 里指定一个装了 transformers 5 的 Python；\n"
+                    "  · 或者在 config.json 的 \"vlm_python\" 里指定一个装了 transformers 5.2 以上的 Python；\n"
                     "  · 或者换 Qwen3-VL / JoyCaption，或者用云端 API。")
         raise vc.CaptionError("自然语言模型加载失败：\n" + "\n".join(errs) + hint)
 

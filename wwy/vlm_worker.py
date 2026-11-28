@@ -12,7 +12,7 @@
 环境变量 WWY_VLM_LIBS：插件自带的 transformers 目录（ComfyUI 的太旧时用），放到 sys.path 最前面。
 
 通信：stdin 每行一个 JSON 命令，stdout 以「@@{json}」行回报，其余输出是日志。
-  {"cmd": "load", "dir": 模型目录, "key": "toriigate", "quant": "auto", "size_gb": 10, "batch": 0, "min_tf": "5.0"}
+  {"cmd": "load", "dir": 模型目录, "key": "toriigate", "quant": "auto", "size_gb": 10, "batch": 0, "min_tf": "5.2"}
       → {"ev": "loaded", "quant": "bf16", "bs": 4} / {"ev": "load_failed", "error": ...}
   {"cmd": "run", "items": [{"file", "system", "user"}], "max_tokens": 512, "temperature": 0.6, "cancel_file": 路径}
       → 每张 {"ev": "item", "file", "text"} 或 {"ev": "item", "file", "error"}，最后 {"ev": "done", "cancelled"}

@@ -43,7 +43,7 @@
 ## 模型和环境
 
 - 自然语言模型在单独的进程里跑，写完就退出、显存马上还回来。环境按这个顺序找：config.json 指定的 → LoRA 训练器的环境 → 启动器的反推环境 → ComfyUI 自己的环境。
-- ToriiGate 0.5 是 Qwen3.5 架构，要 transformers 5 以上（Qwen3-VL 要 4.57 以上）。找到的环境都不够新时（比如 ComfyUI 自带的是 4.5x），第一次用会自动给反推单独装一份新的 transformers 到插件目录的 `_vlm_libs`（几十 MB，torch 照样用 ComfyUI 的），只有反推的子进程用它，**不改 ComfyUI 自己的 transformers**，不影响别的插件。装不上（没网、pip 太旧）时报错里会写怎么办。
+- ToriiGate 0.5 是 Qwen3.5 架构，要 transformers 5.2 以上（Qwen3-VL 要 4.57 以上）。找到的环境都不够新时（比如 ComfyUI 自带的是 4.5x），第一次用会自动给反推单独装一份新的 transformers 到插件目录的 `_vlm_libs`（几十 MB，torch 照样用 ComfyUI 的），只有反推的子进程用它，**不改 ComfyUI 自己的 transformers**，不影响别的插件。装不上（没网、pip 太旧）时报错里会写怎么办。
 - WD14 要 `onnxruntime`（或 `onnxruntime-gpu`）。
 - 模型找不到时自动下载（hf-mirror / 魔搭 / HF 官方轮换，断点续传）。没有启动器 / 训练器时放在 `ComfyUI/models/wd14_tagger` 和 `ComfyUI/models/vlm_caption`。
 
